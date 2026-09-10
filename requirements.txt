@@ -1,0 +1,14 @@
+# Intentionally excludes torch/torchvision/torchaudio: reuse the workspace .venv.
+ultralytics>=8.3,<9
+opencv-python>=4.10
+numpy>=1.26,<2
+onnx>=1.16
+onnxruntime-gpu>=1.20
+gdown>=5
+yacs>=0.1.8
+h5py>=3.10
+imageio>=2.34
+chardet>=5
+future>=1.0
+six>=1.16
+scipy>=1.12

@@ -1,0 +1,18 @@
+# Face-first stable local tracking profile for fixed indoor cameras.
+# Important: infer.py now defaults to --conf 0.10 so low-score detections are
+# not removed before BoT-SORT can use track_low_thresh for occlusion recovery.
+tracker_type: botsort
+track_high_thresh: 0.25
+track_low_thresh: 0.10
+new_track_thresh: 0.30
+track_buffer: 60
+match_thresh: 0.80
+fuse_score: True
+# Fixed CCTV: no camera-motion compensation is needed.
+gmc_method: none
+proximity_thresh: 0.50
+appearance_thresh: 0.82
+with_reid: True
+# Keep native tracker ReID unchanged in this controlled phase. Project OSNet is
+# used by P-memory only for short-gap continuity and multi-view session learning.
+model: auto
