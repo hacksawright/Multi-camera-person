@@ -220,16 +220,18 @@ def process_camera(
         device=args.device,
         half=(torch_device(args.device).startswith("cuda") and not args.no_half),
         verbose=False,
+        vid_stride=max(int(getattr(args, "vid_stride", 1)), 1),
     )
 
     preview_path = output_dir / f"{cam}_local_identity.mp4"
     writer = None
+    skip_local = bool(getattr(args, "skip_local_video", False))
     frame_idx = -1
 
     for frame_idx, result in enumerate(results):
         orig = result.orig_img
         frame = orig.copy()
-        if writer is None:
+        if writer is None and not skip_local:
             h, w = frame.shape[:2]
             fps = 25.0
             if not source.isdigit():
@@ -242,7 +244,8 @@ def process_camera(
 
         boxes_obj = result.boxes
         if boxes_obj is None or boxes_obj.id is None or len(boxes_obj) == 0:
-            writer.write(frame)
+            if writer is not None:
+                writer.write(frame)
             continue
 
         boxes = boxes_obj.xyxy.detach().cpu().numpy()
@@ -580,7 +583,8 @@ def process_camera(
             cv2.putText(frame, face_id_line, (x1, max(20, y1 - 6)), cv2.FONT_HERSHEY_SIMPLEX,
                         0.36, (255, 255, 255), 1, cv2.LINE_AA)
 
-        writer.write(frame)
+        if writer is not None:
+            writer.write(frame)
 
     if writer is not None:
         writer.release()
@@ -769,6 +773,12 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--conf", type=float, default=0.10)
     p.add_argument("--imgsz", type=int, default=640)
     p.add_argument("--no-half", action="store_true")
+    p.add_argument("--vid-stride", type=int, default=1, help="Process every Nth frame in YOLO.track")
+    p.add_argument(
+        "--skip-local-video",
+        action="store_true",
+        help="Do not write {cam}_local_identity.mp4 during tracking (CPU encode). Final *_identity.mp4 still renders.",
+    )
 
     p.add_argument("--reid-model", default=str(ASSETS_ROOT / "models" / "osnet" / "osnet_x1_0_msmt17.pth"))
     p.add_argument("--reid-name", default="osnet_x1_0")
@@ -866,6 +876,7 @@ def main() -> None:
     print("[person] authority: trusted FACE can split/correct P segments; BODY only supports short-gap continuity")
 
     face_detector = FaceDetector(str(scrfd_model), device=device, input_size=face_roi_input, threshold=args.face_det_threshold)
+    print(f"[face] SCRFD session providers={face_detector.detector.session.get_providers()}")
     face_embedder = AdaFaceQualityEmbedder(args.adaface_repo, args.adaface_checkpoint, device=device)
     reid_embedder = TorchReIDEmbedder(device=device, model_name=args.reid_name, model_path=str(reid_model))
 

@@ -10,11 +10,26 @@ usage terms; see the project root LICENSE_NOTES.md.
 """
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import cv2
 import numpy as np
 
+
+def _prepend_torch_cuda_libs() -> None:
+    """Let ORT find cuBLAS/cuDNN that shipped with the installed PyTorch wheel."""
+    try:
+        import torch
+    except Exception:
+        return
+    lib = Path(torch.__file__).resolve().parent / "lib"
+    if not lib.is_dir():
+        return
+    current = os.environ.get("LD_LIBRARY_PATH", "")
+    prefix = str(lib)
+    if prefix not in current.split(os.pathsep):
+        os.environ["LD_LIBRARY_PATH"] = prefix + (os.pathsep + current if current else "")
 
 def distance2bbox(points: np.ndarray, distance: np.ndarray) -> np.ndarray:
     x1 = points[:, 0] - distance[:, 0]
@@ -41,13 +56,15 @@ class SCRFD:
             raise FileNotFoundError(self.model_file)
 
         # ORT 1.19+ can reuse CUDA/cuDNN DLLs installed with PyTorch on Windows.
+        _prepend_torch_cuda_libs()
         if hasattr(ort, "preload_dlls"):
             try:
                 ort.preload_dlls()
             except Exception:
                 pass
 
-        if device.lower() == "cpu":
+        want_cuda = device.lower() != "cpu"
+        if not want_cuda:
             providers = ["CPUExecutionProvider"]
         else:
             device_id = int(device.split(":")[-1]) if ":" in device else int(device)
@@ -56,10 +73,22 @@ class SCRFD:
                 raise RuntimeError(
                     "CUDAExecutionProvider is unavailable in ONNX Runtime. "
                     "Run check_gpu.py and make sure onnxruntime-gpu is installed."
+                    "Install onnxruntime-gpu built for the same CUDA major as PyTorch "
+                    "(Kaggle cu128 needs onnxruntime-gpu>=1.20,<1.27, not the CUDA-13 default)."
                 )
             providers = [("CUDAExecutionProvider", {"device_id": device_id}), "CPUExecutionProvider"]
 
         self.session = ort.InferenceSession(self.model_file, providers=providers)
+        active = list(self.session.get_providers())
+        print(f"[scrfd] ORT session providers: {active}")
+        if want_cuda and "CUDAExecutionProvider" not in active:
+            raise RuntimeError(
+                "SCRFD fell back to CPU. The CUDA EP is listed as available but failed to load "
+                "(typical Kaggle error: libcublasLt.so.13). PyTorch on Kaggle is CUDA 12.x; "
+                "onnxruntime-gpu>=1.27 needs CUDA 13. Uninstall onnxruntime/onnxruntime-gpu and "
+                "install 'onnxruntime-gpu>=1.20,<1.27', then restart the notebook session. "
+                f"Active providers were: {active}"
+            )
         self.input_name = self.session.get_inputs()[0].name
         self.output_names = [o.name for o in self.session.get_outputs()]
         self.input_mean = 127.5
